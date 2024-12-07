@@ -1,3 +1,4 @@
+mod utils;
 use anyhow::{Result};
 use clap::{Parser, Subcommand};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
@@ -5,6 +6,7 @@ use rustyline::DefaultEditor;
 use serde_json::{json, Value};
 use std::env;
 use std::io::{self, BufRead};
+use utils::{model_selector, check_openai_api_key};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -19,22 +21,22 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Chat {
-        #[arg(short, long, default_value = "llama-3.2-1b-instruct")]
-        model: String, //llama-3.1-8b-instruct //gemini-1.5-flash
+        #[arg(short, long)]
+        model: Option<String>, //llama-3.1-8b-instruct //gemini-1.5-flash
     },
     Analyze {
         #[arg(short, long, default_value = "100")]
         n: usize,
 
-        #[arg(short, long, default_value = "llama-3.2-1b-instruct")]
-        model: String,
+        #[arg(short, long)]
+        model: Option<String>,
     },
 }
 
-async fn call_llm_api(model: &str, messages: Vec<Value>) -> Result<Value> {
+async fn call_llm_api(model_name: &str, messages: Vec<Value>) -> Result<Value> {
     
     let api_key = env::var("OPENAI_API_KEY")?;
-    let base_url = env::var("OPENAI_BASE_URL")?;
+    let base_url = env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
     let chat_completion_url = format!("{}/chat/completions", base_url);
 
     let client = reqwest::Client::new();
@@ -46,7 +48,7 @@ async fn call_llm_api(model: &str, messages: Vec<Value>) -> Result<Value> {
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     
     let request_body = json!({
-        "model": model,
+        "model": model_name,
         "messages": messages,
         "temperature": 0.8
     });
@@ -67,7 +69,7 @@ async fn call_llm_api(model: &str, messages: Vec<Value>) -> Result<Value> {
     }
 }
 
-async fn analyze_logs(input_text: &str, n: usize, model: &str) -> Result<()> {
+async fn analyze_logs(input_text: &str, n: usize, model_name: &str) -> Result<()> {
     println!("Analyzing last {} lines of logs:\n {} \n", n, input_text);
     
     let mut messages = Vec::new();
@@ -82,7 +84,7 @@ async fn analyze_logs(input_text: &str, n: usize, model: &str) -> Result<()> {
         "content": input_text,
     }));
 
-    let response_data = call_llm_api(model, messages.clone()).await?;
+    let response_data = call_llm_api(model_name, messages.clone()).await?;
     
     if let Some(message) = response_data["choices"][0]["message"]["content"].as_str() {
         println!("\nHere is what I think about the logs: {}\n", message);
@@ -95,12 +97,7 @@ async fn analyze_logs(input_text: &str, n: usize, model: &str) -> Result<()> {
     Ok(())
 }
 
-async fn handle_chat(model: &str) -> Result<()> {
-    // Ensure OPENAI_API_KEY is set
-    if env::var("OPENAI_API_KEY").is_err() {
-        println!("Please set the OPENAI_API_KEY environment variable");
-        return Ok(());
-    }
+async fn handle_chat(model_name: &str) -> Result<()> {
 
     let mut rl = DefaultEditor::new()?;
     let mut messages = Vec::new();
@@ -110,7 +107,7 @@ async fn handle_chat(model: &str) -> Result<()> {
         "content": "You are a command line expert. Give me a precise CLI command for the query I ask you. Keep it concise, just give me the exact command to run (no explanations).",
     }));
 
-    println!("Chat started with model: {}. Type 'exit' to quit.", model);
+    println!("Chat started with model: {}. Type 'exit' to quit.", model_name);
 
     loop {
         let readline = rl.readline(">> ");
@@ -127,7 +124,7 @@ async fn handle_chat(model: &str) -> Result<()> {
                     "content": line
                 }));
 
-                let response_data = call_llm_api(model, messages.clone()).await?;
+                let response_data = call_llm_api(model_name, messages.clone()).await?;
 
                 if let Some(message) = response_data["choices"][0]["message"]["content"].as_str() {
                     println!("\nCommand: {}\n", message);
@@ -148,13 +145,18 @@ async fn handle_chat(model: &str) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Check for the OPENAI_API_KEY at the start of the application
+    check_openai_api_key()?;
+
     let cli = Cli::parse();
 
     match &cli.command {
         Some(Commands::Chat { model }) => {
-            handle_chat(model).await?;
+            let model_name = model_selector(model.as_ref())?;
+            handle_chat(&model_name).await?;
         }
         Some(Commands::Analyze { n, model }) => {
+            let model_name = model_selector(model.as_ref())?;
             let mut buffer = Vec::new();
             let stdin = io::stdin();
             let handle = stdin.lock();
@@ -168,7 +170,7 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            analyze_logs(buffer.join("\n").trim(), *n, model).await?;
+            analyze_logs(buffer.join("\n").trim(), *n, &model_name).await?;
         },
         None => {
             if let Some(input) = cli.input {
