@@ -39,6 +39,7 @@ Before using Terminal Sage, make sure to set the required environment variables:
 ```bash
 export OPENAI_API_KEY="your_openai_api_key" # Your API key (keep it random if using local model)
 export OPENAI_BASE_URL="https://api.openai.com/v1" # Optional, defaults to OpenAI's API
+export MODEL_NAME="gpt-4o"
 ```
 
 ### Local Model Usage (Ollama/Llama.cpp server)
@@ -48,6 +49,7 @@ Before using Terminal Sage, make sure to set the required environment variables:
 ```bash
 export OPENAI_API_KEY="sk-xxx" 
 export OPENAI_BASE_URL="http://localhost:1234/v1"
+export MODEL_NAME="llama-3.2-1b-instruct"
 ```
 Use --model flag to specify the model to use. I have tested with `llama-3.2-1b-instruct` (locally) and `llama-3.1-8b-instruct` (locally and with perplexity API).
 
@@ -66,11 +68,7 @@ Use --model flag to specify the model to use. I have tested with `llama-3.2-1b-i
 
 ## Configuration
 
-You can configure the default model and number of lines to analyze by modifying the command-line arguments. The available models include:
-
-- `llama-3.2-1b-instruct` (default)
-- `llama-3.1-8b-instruct`
-- `gemini-1.5-flash`
+You can configure the default model using `MODEL_NAME` env or pass `--model` param to use different model in command-line parameters. You can also pass `-n` param to set number of lines to analyze (default is last 100 lines).
 
 ## Dependencies
 
